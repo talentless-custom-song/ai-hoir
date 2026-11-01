@@ -55,6 +55,25 @@ def cache_key(audio_path, link=None):
     return "file:" + h.hexdigest()[:32]
 
 
+def _purge_expired_locked(now=None):
+    """Drop every expired cached result. Caller must hold `_cache_lock`."""
+    now = time.time() if now is None else now
+    expired = [k for k, (ts, _) in _result_cache.items() if now - ts > RESULT_TTL_SECONDS]
+    for key in expired:
+        _result_cache.pop(key, None)
+    return len(expired)
+
+
+def cache_cleanup():
+    """Free RAM by evicting every expired transcription result. Returns how many went.
+
+    Runs on a background sweeper (`start_cache_cleanup`) and before every insert, so stale
+    MIDI/notes are released without waiting for their key to be requested again.
+    """
+    with _cache_lock:
+        return _purge_expired_locked()
+
+
 def _cache_get(key):
     with _cache_lock:
         entry = _result_cache.get(key)
@@ -69,10 +88,38 @@ def _cache_get(key):
 
 def _cache_put(key, result):
     with _cache_lock:
+        _purge_expired_locked()  # free expired results first
         if len(_result_cache) >= RESULT_CACHE_MAX:
             oldest = min(_result_cache, key=lambda k: _result_cache[k][0])
             _result_cache.pop(oldest, None)
         _result_cache[key] = (time.time(), result)
+
+
+# Background sweeper so expired results are freed even when no new transcription arrives
+# to trigger the eviction-on-insert path. One daemon thread, no external scheduler.
+CACHE_CLEANUP_INTERVAL_SECONDS = float(
+    os.environ.get("CACHE_CLEANUP_INTERVAL_SECONDS", "60")
+)
+_cache_cleanup_started = False
+
+
+def start_cache_cleanup():
+    """Start a daemon thread calling `cache_cleanup()` every interval. Idempotent."""
+    global _cache_cleanup_started
+    if _cache_cleanup_started:
+        return
+    _cache_cleanup_started = True
+
+    def _loop():
+        while True:
+            time.sleep(CACHE_CLEANUP_INTERVAL_SECONDS)
+            try:
+                cache_cleanup()
+            except Exception:
+                pass  # never let the sweeper die
+
+    threading.Thread(target=_loop, name="cache-cleanup", daemon=True).start()
+
 
 _model = None
 _load_error = None

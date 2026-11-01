@@ -173,6 +173,7 @@ INDEX_TEMPLATE = """<!doctype html>
 @asynccontextmanager
 async def lifespan(_app):
     transcriber.warm_up()
+    transcriber.start_cache_cleanup()
     yield
 
 

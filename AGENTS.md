@@ -79,6 +79,12 @@ docker compose -f docker-compose.base44.yml logs -f transcriber
   serialization lock. This fixes the re-transcribe-on-retry loop for any clip whose one-shot
   transcription time is below the bot's overall retry window; clips longer than that window
   still need faster (GPU) inference.
+- **Cache cleanup frees RAM.** `transcriber.cache_cleanup()` evicts every expired result
+  (older than `RESULT_TTL_SECONDS`). It runs (a) on a background daemon sweeper started from
+  `lifespan → start_cache_cleanup()` every `CACHE_CLEANUP_INTERVAL_SECONDS` (default `60s`,
+  idempotent) and (b) at the start of every `_cache_put`, so stale MIDI/note blobs don't sit
+  in memory waiting for their key to be requested again. The cache is also hard-capped at
+  `RESULT_CACHE_MAX` (oldest evicted). No new endpoint; it is internal housekeeping.
 - **CPU inference is slow** — measured ~134 s for a 3:57 track (~0.6x realtime) on
   4 cores; a short clip ~5.7 s. That is expected, not a hang. The healthcheck uses a
   short timeout but does not kill the container.
