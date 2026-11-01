@@ -17,6 +17,9 @@ services:
       - OMP_NUM_THREADS=4
       - MKL_NUM_THREADS=4
       - DEFAULT_BPM=120
+      # Concurrent requests wait up to this long for the single transcription slot
+      # instead of failing fast with 503 "busy" (was 3s default).
+      - BUSY_WAIT_SECONDS=60
       - WATCHFILES_FORCE_POLLING=true
       - BASE44_PUBLIC_HOST_SUFFIX=${BASE44_PUBLIC_HOST_SUFFIX}
     env_file:
