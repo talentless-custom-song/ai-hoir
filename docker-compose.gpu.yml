@@ -1,0 +1,60 @@
+# GPU variant of docker-compose.base44.yml - runs TransKun on an NVIDIA GPU.
+#
+#   docker compose -f docker-compose.gpu.yml up -d --build
+#
+# Requirements on the host:
+#   - NVIDIA driver installed
+#   - nvidia-container-toolkit (`docker run --gpus all nvidia-smi` must work)
+#
+# This is a separate Compose project (`name: ai-hoir-gpu`) so it never touches the CPU
+# stack in docker-compose.base44.yml. The web entry defaults to host port 3000; set
+# GPU_HOST_PORT (e.g. GPU_HOST_PORT=3001) to run it alongside the CPU stack.
+name: ai-hoir-gpu
+
+services:
+  transcriber:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    image: base44/ai-hoir-transkun:gpu
+    working_dir: /app
+    environment:
+      - DEVICE=cuda
+      - DEFAULT_BPM=120
+      # GPU inference is fast, so the single-slot lock rarely matters; keep the tested
+      # 60s so a concurrent request waits for the slot instead of failing with 503.
+      - BUSY_WAIT_SECONDS=60
+      - WATCHFILES_FORCE_POLLING=true
+      - BASE44_PUBLIC_HOST_SUFFIX=${BASE44_PUBLIC_HOST_SUFFIX}
+    env_file:
+      - /run/base44/app.env
+    command:
+      - uvicorn
+      - app.main:app
+      - --host=0.0.0.0
+      - --port=3000
+      - --reload
+      - --reload-dir=/app/app
+    ports:
+      - "${GPU_HOST_PORT:-3000}:3000"
+    volumes:
+      - ./:/app
+    # Expose the host GPU to the container (Compose v2 honours this on `up`).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=3).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: on-failure

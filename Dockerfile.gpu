@@ -1,0 +1,36 @@
+# Base44 GPU image for the TransKun piano-transcription API (NVIDIA CUDA).
+#
+# Same app as Dockerfile.base44, but with CUDA-enabled torch/torchaudio wheels so the
+# model runs on an NVIDIA GPU. The CUDA/cuDNN runtime libraries are bundled inside the
+# pip wheels, so a slim base works - the host only needs the NVIDIA driver plus
+# nvidia-container-toolkit (`docker run --gpus all nvidia-smi` must work).
+#
+# Run it via docker-compose.gpu.yml (DEVICE=cuda). The source is bind-mounted, so code
+# edits never need a rebuild - rebuild only when requirements.txt changes.
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# ffmpeg + libsndfile decode the uploaded audio; sox/libsoxr back the pydub / sox /
+# soxr packages that transkun depends on.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg \
+        libsndfile1 \
+        sox \
+        libsox-fmt-all \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt ./
+
+# CUDA 12.4 torch wheels first, so transkun's unpinned torch/torchaudio dependencies
+# are already satisfied and no CPU-only wheels get pulled in. Match the cuXXX tag to
+# your driver if needed (cu121 / cu124 / cu126 ...).
+RUN pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124 \
+ && pip install -r requirements.txt
+
+EXPOSE 3000

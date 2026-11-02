@@ -19,6 +19,22 @@ docker compose -f docker-compose.base44.yml logs -f transcriber
   `requirements.txt` or `Dockerfile.base44` change.
 - `WATCHFILES_FORCE_POLLING=true` is set because the source arrives through a bind mount.
 
+### GPU (optional, separate stack)
+`Dockerfile.gpu` + `docker-compose.gpu.yml` run the same app on an **NVIDIA GPU**
+(`DEVICE=cuda`, CUDA 12.4 torch wheels). The host needs the NVIDIA driver plus
+nvidia-container-toolkit. It is its own Compose project (`name: ai-hoir-gpu`) on host
+port `${GPU_HOST_PORT:-3000}`, so it never touches the CPU stack — but port 3000 clashes
+if both run, so stop the CPU stack or set `GPU_HOST_PORT=3001`.
+```bash
+docker compose -f docker-compose.gpu.yml up -d --build
+```
+`DEVICE` is already honoured by `app/transcriber.py` (model `.to(DEVICE)`, checkpoint
+`map_location=DEVICE`, input tensor `.to(DEVICE)`), so no app code changes are needed.
+**This CPU-only sandbox has no GPU, so the GPU stack is unverified here.** On the GPU
+host, smoke-test: `/health` → `ready`, the log must say `model ready on device 'cuda'`,
+then a `/transcribe` upload returns an `MThd` MIDI. `CPU_THREADS`/`OMP`/`MKL` no longer
+matter on GPU.
+
 ## Non-obvious things worth knowing
 - **No model download.** The TransKun 2.0 checkpoint (`pretrained/2.0.pt`, ~56 MB) and
   its config (`pretrained/2.0.conf`) ship **inside the pip package**. `transkun`
