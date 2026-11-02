@@ -205,6 +205,13 @@ async def _api_key_guard(request: Request, call_next):
     return await call_next(request)
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    # Browsers auto-request /favicon.ico on every page load; answer 204 so the preview
+    # console (and any client) sees no 404 noise instead of a missing icon.
+    return Response(status_code=204)
+
+
 @app.get("/health")
 def health():
     error = transcriber.load_error()
